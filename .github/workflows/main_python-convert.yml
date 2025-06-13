@@ -1,7 +1,3 @@
-# Docs for the Azure Web Apps Deploy action: https://github.com/Azure/webapps-deploy
-# More GitHub Actions for Azure: https://github.com/Azure/actions
-# More info on Python, GitHub Actions, and Azure App Service: https://aka.ms/python-webapps-actions
-
 name: Build and deploy Python app to Azure Web App - python-convert
 
 on:
@@ -28,22 +24,26 @@ jobs:
         run: |
           python -m venv venv
           source venv/bin/activate
-      
+
       - name: Install dependencies
-        run: pip install -r requirements.txt
-        
+        run: |
+          pip install -r requirements.txt
+          pip install --upgrade pdf2docx  # If you specifically need to upgrade pdf2docx
+
       # Optional: Add step to run tests here (PyTest, Django test suites, etc.)
 
       - name: Zip artifact for deployment
-        run: zip release.zip ./* -r
+        run: zip -r release.zip ./*
 
       - name: Upload artifact for deployment jobs
         uses: actions/upload-artifact@v4
         with:
           name: python-app
-          path: |
-            release.zip
-            !venv/
+          path: release.zip
+          # Exclude venv directory as it should not be part of the deployment
+          # Exclude files you don't need (e.g., venv)
+          # You can add a `.gitignore` or exclude based on your needs
+          # !venv/  # Uncomment this line if you wish to exclude venv
 
   deploy:
     runs-on: ubuntu-latest
@@ -64,7 +64,6 @@ jobs:
       - name: Unzip artifact for deployment
         run: unzip release.zip
 
-      
       - name: Login to Azure
         uses: azure/login@v2
         with:
@@ -79,3 +78,6 @@ jobs:
           app-name: 'python-convert'
           slot-name: 'Production'
           
+      - name: Confirm deployment
+        run: |
+          echo "App deployed to Azure Web App. URL: ${{ steps.deploy-to-webapp.outputs.webapp-url }}"
