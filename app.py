@@ -8,12 +8,12 @@ import time
 import fitz  # PyMuPDF for PDF text extraction
 
 # Set up logging
-log_dir = "/tmp/azure_app_logs"  # Temporary log directory for logging purposes
+log_dir = "/wissda/azure_app_logs"  # Log directory for logging purposes
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 
 logging.basicConfig(
-    filename=os.path.join(log_dir, "app.log"),  # Store logs in the temporary folder
+    filename=os.path.join(log_dir, "app.log"),  # Store logs in the log folder
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
@@ -21,22 +21,25 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Define static token (you can store this in environment variables for better security)
-STATIC_AUTH_TOKEN = "Wissda_101"  # Replace this with your actual token
+STATIC_AUTH_TOKEN = os.getenv("STATIC_AUTH_TOKEN", "Wissda_101")  # Fetch from environment variable
 
 app = Flask(__name__)
 
 # Create a dedicated directory for temp files (works in both App Service and Docker)
-TEMP_DIR = "/tmp/temp-docs"
+TEMP_DIR = "/wissda/temp-docs"
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
 
-# Function to extract text from PDF using PyMuPDF
+# Function to extract text from PDF using PyMuPDF (updated method for get_text())
 def extract_text_from_pdf(pdf_path):
     text = ""
-    doc = fitz.open(pdf_path)
-    for page_num in range(len(doc)):
-        page = doc.load_page(page_num)
-        text += page.get_text("text")  # Extract text from each page
+    try:
+        doc = fitz.open(pdf_path)  # Open the PDF file
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            text += page.get_text("text")  # Extract text from each page using get_text()
+    except Exception as e:
+        logger.error(f"Error extracting text from PDF: {str(e)}")
     return text
 
 @app.route('/convert', methods=['POST'])
@@ -49,7 +52,7 @@ def convert_pdf_to_docx():
         return {"error": "Unauthorized access. Invalid or missing token."}, 403
 
     try:
-        # Step 2: Create temporary files inside the temp-docs directory
+        # Step 2: Create temporary files inside the /wissda/temp-docs directory
         pdf_temp_path = os.path.join(TEMP_DIR, "temp_input.pdf")
         docx_temp_path = os.path.join(TEMP_DIR, "converted_output.docx")
 
@@ -72,7 +75,11 @@ def convert_pdf_to_docx():
         # Step 5: Convert PDF → DOCX
         logger.info("Starting conversion...")
         cv = Converter(pdf_temp_path)
-        cv.convert(docx_temp_path, start=0, end=None)
+        try:
+            cv.convert(docx_temp_path, start=0, end=None)
+        except Exception as e:
+            logger.error(f"Error during conversion: {str(e)}")
+            return {"error": "Conversion failed due to an unexpected error during the conversion process."}, 500
         cv.close()
 
         # Step 6: Return DOCX file as response
@@ -86,10 +93,6 @@ def convert_pdf_to_docx():
         logger.info(f"Response headers: {response.headers}")
         return response
 
-    except ZeroDivisionError as e:
-        # Handling specific ZeroDivisionError
-        logger.error(f"ZeroDivisionError occurred during conversion: {str(e)}")
-        return {"error": "Conversion failed due to a division by zero error in processing the PDF document."}, 500
     except Exception as e:
         # Log full exception traceback
         logger.error(f"An unexpected error occurred: {str(e)}")
