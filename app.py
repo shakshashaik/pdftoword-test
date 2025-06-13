@@ -57,10 +57,14 @@ def convert_pdf_to_docx():
         # Step 4: Convert PDF → DOCX using pdf2docx
         logger.info("Starting conversion...")
         try:
+            # Initialize the converter with the input PDF
             cv = Converter(pdf_temp_path)
+            # Perform the conversion
             cv.convert(docx_temp_path, start=0, end=None)
+            # Close the converter once done
             cv.close()
         except Exception as e:
+            # Log the error and return a user-friendly message
             logger.error(f"Error during conversion: {str(e)}")
             return {"error": "Conversion failed due to an error during PDF to DOCX conversion."}, 500
 
