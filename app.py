@@ -1,10 +1,11 @@
-from flask import Flask, request, send_file, Response
+from flask import Flask, request, send_file
 from pdf2docx import Converter
 import tempfile
 import os
 import logging
 import traceback
 import time
+import fitz  # PyMuPDF for PDF text extraction
 
 # Set up logging
 log_dir = "/tmp/azure_app_logs"  # Temporary log directory for logging purposes
@@ -28,6 +29,15 @@ app = Flask(__name__)
 TEMP_DIR = "/tmp/temp-docs"
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
+
+# Function to extract text from PDF using PyMuPDF
+def extract_text_from_pdf(pdf_path):
+    text = ""
+    doc = fitz.open(pdf_path)
+    for page_num in range(len(doc)):
+        page = doc.load_page(page_num)
+        text += page.get_text("text")  # Extract text from each page
+    return text
 
 @app.route('/convert', methods=['POST'])
 def convert_pdf_to_docx():
@@ -54,13 +64,18 @@ def convert_pdf_to_docx():
                 f.write(request.data)
             logger.info("Received binary data")
 
-        # Step 4: Convert PDF → DOCX
+        # Step 4: Extract text using PyMuPDF (optional, for debugging)
+        logger.info("Extracting text from PDF...")
+        extracted_text = extract_text_from_pdf(pdf_temp_path)
+        logger.info(f"Extracted text: {extracted_text[:500]}")  # Log first 500 characters
+
+        # Step 5: Convert PDF → DOCX
         logger.info("Starting conversion...")
         cv = Converter(pdf_temp_path)
         cv.convert(docx_temp_path, start=0, end=None)
         cv.close()
 
-        # Step 5: Return DOCX file as response
+        # Step 6: Return DOCX file as response
         response = send_file(
             docx_temp_path,
             as_attachment=True,
@@ -68,7 +83,6 @@ def convert_pdf_to_docx():
             mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         )
 
-        # Log the response headers to confirm it's set up for downloading
         logger.info(f"Response headers: {response.headers}")
         return response
 
