@@ -1,15 +1,24 @@
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, send_file
 from pdf2docx import Converter
 import tempfile
 import os
 import logging
 
 # Set up logging
-logging.basicConfig(level=logging.INFO)  # This will log messages with level INFO or higher
+log_dir = "/tmp/azure_app_logs"  # Temporary log directory
+if not os.path.exists(log_dir):
+    os.makedirs(log_dir)
+
+logging.basicConfig(
+    filename=os.path.join(log_dir, "app.log"),  # Store logs in the temporary folder
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 logger = logging.getLogger(__name__)
 
 # Define static token (you can store this in environment variables for better security)
-STATIC_AUTH_TOKEN = "Wissda_ServiceNow_889"  # Replace this with your actual token
+STATIC_AUTH_TOKEN = "Wissda_101"  # Replace this with your actual token
 
 app = Flask(__name__)
 
@@ -20,7 +29,7 @@ def convert_pdf_to_docx():
     
     if auth_token != STATIC_AUTH_TOKEN:
         logger.warning("Unauthorized access attempt")
-        return jsonify({"error": "Unauthorized access. Invalid or missing token."}), 403
+        return {"error": "Unauthorized access. Invalid or missing token."}, 403
 
     try:
         # Step 2: Create temporary files
