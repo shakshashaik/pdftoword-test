@@ -5,7 +5,6 @@ import os
 import logging
 import traceback
 import time
-import fitz  # PyMuPDF for PDF text extraction
 
 # Set up logging
 log_dir = "/wissda/azure_app_logs"  # Log directory for logging purposes
@@ -29,18 +28,6 @@ app = Flask(__name__)
 TEMP_DIR = "/wissda/temp-docs"
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
-
-# Function to extract text from PDF using PyMuPDF (updated method for get_text())
-def extract_text_from_pdf(pdf_path):
-    text = ""
-    try:
-        doc = fitz.open(pdf_path)  # Open the PDF file
-        for page_num in range(len(doc)):
-            page = doc.load_page(page_num)
-            text += page.get_text("text")  # Extract text from each page using get_text()
-    except Exception as e:
-        logger.error(f"Error extracting text from PDF: {str(e)}")
-    return text
 
 @app.route('/convert', methods=['POST'])
 def convert_pdf_to_docx():
@@ -67,22 +54,18 @@ def convert_pdf_to_docx():
                 f.write(request.data)
             logger.info("Received binary data")
 
-        # Step 4: Extract text using PyMuPDF (optional, for debugging)
-        logger.info("Extracting text from PDF...")
-        extracted_text = extract_text_from_pdf(pdf_temp_path)
-        logger.info(f"Extracted text: {extracted_text[:500]}")  # Log first 500 characters
-
-        # Step 5: Convert PDF → DOCX
+        # Step 4: Convert PDF → DOCX using pdf2docx
         logger.info("Starting conversion...")
-        cv = Converter(pdf_temp_path)
         try:
+            cv = Converter(pdf_temp_path)
             cv.convert(docx_temp_path, start=0, end=None)
+            cv.close()
         except Exception as e:
             logger.error(f"Error during conversion: {str(e)}")
-            return {"error": "Conversion failed due to an unexpected error during the conversion process."}, 500
-        cv.close()
+            return {"error": "Conversion failed due to an error during PDF to DOCX conversion."}, 500
 
-        # Step 6: Return DOCX file as response
+        # Step 5: Return DOCX file as response
+        logger.info("Conversion successful, sending DOCX...")
         response = send_file(
             docx_temp_path,
             as_attachment=True,
@@ -90,7 +73,6 @@ def convert_pdf_to_docx():
             mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         )
 
-        logger.info(f"Response headers: {response.headers}")
         return response
 
     except Exception as e:
