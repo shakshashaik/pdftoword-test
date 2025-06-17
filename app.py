@@ -5,101 +5,106 @@ import os
 import logging
 import traceback
 import time
+import uuid
 
 # Set up logging
-log_dir = "/wissda/azure_app_logs"  # Log directory for logging purposes
+log_dir = "/wissda/azure_app_logs"
 if not os.path.exists(log_dir):
     os.makedirs(log_dir)
 
 logging.basicConfig(
-    filename=os.path.join(log_dir, "app.log"),  # Store logs in the log folder
+    filename=os.path.join(log_dir, "app.log"),
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
 )
 
 logger = logging.getLogger(__name__)
 
-# Define static token (you can store this in environment variables for better security)
-STATIC_AUTH_TOKEN = os.getenv("STATIC_AUTH_TOKEN", "Wissda_101")  # Fetch from environment variable
+STATIC_AUTH_TOKEN = os.getenv("STATIC_AUTH_TOKEN", "Wissda_101")
 
 app = Flask(__name__)
 
-# Create a dedicated directory for temp files (works in both App Service and Docker)
 TEMP_DIR = "/wissda/temp-docs"
 if not os.path.exists(TEMP_DIR):
     os.makedirs(TEMP_DIR)
 
+
 @app.route('/convert', methods=['POST'])
 def convert_pdf_to_docx():
-    # Step 1: Validate Authentication Token
     auth_token = request.headers.get('Authorization')
-
     if auth_token != STATIC_AUTH_TOKEN:
         logger.warning("Unauthorized access attempt")
         return {"error": "Unauthorized access. Invalid or missing token."}, 403
 
-    try:
-        # Step 2: Create temporary files inside the /wissda/temp-docs directory
-        pdf_temp_path = os.path.join(TEMP_DIR, "temp_input.pdf")
-        docx_temp_path = os.path.join(TEMP_DIR, "converted_output.docx")
+    unique_id = str(uuid.uuid4())
+    pdf_temp_path = os.path.join(TEMP_DIR, f"temp_input_{unique_id}.pdf")
+    docx_temp_path = os.path.join(TEMP_DIR, f"converted_output_{unique_id}.docx")
 
-        # Step 3: Handle file from ServiceNow
+    try:
+        # Step 1: Receive input
         if 'file' in request.files:
             file = request.files['file']
             file.save(pdf_temp_path)
-            logger.info(f"Received file: {file.filename}")
+            logger.info(f"Received multipart file: {file.filename}")
         else:
-            # For application/pdf content-type (binary stream)
             with open(pdf_temp_path, 'wb') as f:
                 f.write(request.data)
-            logger.info("Received binary data")
+                f.flush()
+                os.fsync(f.fileno())
+            logger.info(f"Received binary data and saved to {pdf_temp_path}")
 
-        # Step 4: Convert PDF → DOCX using pdf2docx
+        # Optional delay (for Docker or FS timing)
+        time.sleep(0.2)
+
+        # Validate file readability
+        try:
+            with open(pdf_temp_path, 'rb') as test_file:
+                test_file.read(10)
+            logger.info("✅ Temp PDF read test passed.")
+        except Exception as e:
+            logger.error(f"❌ Temp PDF read failed: {e}")
+            return {"error": "Temp file could not be read."}, 500
+
+        # Step 2: Convert PDF to DOCX
         logger.info("Starting conversion...")
         try:
-            # Initialize the converter with the input PDF
             cv = Converter(pdf_temp_path)
-            # Perform the conversion
             cv.convert(docx_temp_path, start=0, end=None)
-            # Close the converter once done
             cv.close()
         except Exception as e:
-            # Log the error and return a user-friendly message
             logger.error(f"Error during conversion: {str(e)}")
-            return {"error": "Conversion failed due to an error during PDF to DOCX conversion."}, 500
+            return {"error": "Conversion failed during PDF to DOCX processing."}, 500
 
-        # Step 5: Return DOCX file as response
+        # Step 3: Send DOCX back
         logger.info("Conversion successful, sending DOCX...")
-        response = send_file(
+        return send_file(
             docx_temp_path,
             as_attachment=True,
-            download_name="converted.docx",  # The name the file will have when downloaded
+            download_name="converted.docx",
             mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         )
 
-        return response
-
     except Exception as e:
-        # Log full exception traceback
-        logger.error(f"An unexpected error occurred: {str(e)}")
-        logger.error("Full stack trace:\n" + traceback.format_exc())
+        logger.error(f"Unexpected error: {str(e)}")
+        logger.error("Stack trace:\n" + traceback.format_exc())
         return {"error": f"Conversion error: {str(e)}"}, 500
 
     finally:
-        # Cleanup temp files (Make sure to delete the files after processing)
+        # Cleanup temp files
         try:
             if os.path.exists(pdf_temp_path):
                 os.remove(pdf_temp_path)
-                logger.info(f"Deleted temporary PDF file: {pdf_temp_path}")
+                logger.info(f"Deleted temp PDF: {pdf_temp_path}")
         except Exception as e:
-            logger.error(f"Error deleting PDF temp file: {str(e)}")
+            logger.error(f"Failed to delete temp PDF: {e}")
 
         try:
             if os.path.exists(docx_temp_path):
                 os.remove(docx_temp_path)
-                logger.info(f"Deleted temporary DOCX file: {docx_temp_path}")
+                logger.info(f"Deleted temp DOCX: {docx_temp_path}")
         except Exception as e:
-            logger.error(f"Error deleting DOCX temp file: {str(e)}")
+            logger.error(f"Failed to delete temp DOCX: {e}")
+
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=5000)
